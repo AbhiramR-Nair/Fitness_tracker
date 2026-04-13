@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
@@ -19,7 +20,7 @@ supabase = init_connection()
 
 
 
-# Create the 5 Tabs
+# Create the 6 Tabs
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Gym", "Swim", "Nutrition", "Body", "Recovery", "Dashboard"])
 
 # Tab 1: Mechanical Tension
@@ -30,7 +31,7 @@ with tab1:
     is_rest_day = st.checkbox("Today is a Rest Day")
     
     if is_rest_day:
-        st.success("Enjoy the recovery. Muscular repair happens today.")
+        st.toast("Enjoy the recovery. Muscular repair happens today.")
         
         if st.button("Log Gym Rest Day"):
             today = str(datetime.now().date())
@@ -44,16 +45,15 @@ with tab1:
             
             response = supabase.table("gym_logs").insert(parent_data).execute()
             if response.data:
-                st.success("Rest day logged successfully.")
+                st.toast("Rest day logged successfully.")
             else:
                 st.error("Failed to log rest day.")
                 
     else:
-        # 2. Indent your normal workout logic here
-        workout_type = st.selectbox("Split", ["Push", "Pull", "Legs"])
-        
-        # ... [Keep all your existing exercise logic, Abs, Forearms, and the "Log Gym Session" button exactly as they are here] ...
-        # Dynamic Filtering
+        # Treat Core and Forearms as standard splits to unify the logic
+        workout_type = st.selectbox("Split", ["Push", "Pull", "Legs", "Core/Abs", "Forearms/Grip"])
+
+        # Clean dynamic filtering based on the split
         if workout_type == "Push":
             exercise = st.selectbox("Movement", ["Bench Press", "Incline DB Press", 
                                                 "Peck Deck Flyes", "Incline DB Flyes", 
@@ -69,13 +69,19 @@ with tab1:
                                                 "Cable Face Pulls", "Reverse Pec Deck Flyes",
                                                 "EZ Bar Curls", "Dumbbell Curls", "Hammer Curls",
                                                 "Preacher Curls"])
-        else:        
+        elif workout_type == "Legs":        
             exercise = st.selectbox("Movement", ["Leg Press", "Bulgarian Split Squats",
                                                 "Leg Extensions", "Leg Curls",
                                                 "Smith Machine Squats", "Abductor Machine", 
                                                 "Adductor Machine", "Calf Raises",
                                                 "Sumo squats", "Hip Thrusts"])
-    
+        elif workout_type == "Core/Abs":
+            exercise = st.selectbox("Movement", ["Ab Crunches", "Hanging Leg Raises", 
+                                                "Ab crunch machine", "Sit-ups", "Russian Twists", "Heel Touches"])
+        elif workout_type == "Forearms/Grip":
+            exercise = st.selectbox("Movement", ["Wrist Curls", "Reverse Wrist Curls", 
+                                                "Natural Forearm Curls", "Natural Reverse Forearm Curls"])
+
         st.subheader("Session Details")
         sets = st.number_input("Set Number", min_value=1, step=1)
         for i in range(sets):
@@ -87,74 +93,40 @@ with tab1:
             with col3:
                 rir = st.number_input("RIR", min_value=0, max_value=5, key=f"rir_{i}")
             
-        if st.checkbox("Abs and Core Work"):
-            abs_exercise = st.selectbox("Abs Exercise", ["Cable Crunches", "Hanging Leg Raises", 
-                                                        "Ab crunch machine", "Sit-ups", "Russian Twists"])
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                abs_weight = st.number_input("Abs Weight (kg)", step=0.5)
-            with col2:
-                abs_sets = st.number_input("Abs Sets", min_value=1, step=1)
-            with col3:
-                abs_reps = st.number_input("Abs Reps", min_value=10, step=1)
-            
-        if st.checkbox("Forearm Work"):
-            forearm_exercise = st.selectbox("Forearm Exercise", ["Wrist Curls", "Reverse Wrist Curls", 
-                                                                "Natural Forearm Curls", "Natural Reverse Forearm Curls"])
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                forearm_weight = st.number_input("Forearm Weight (kg)", step=0.5)
-            with col2:
-                forearm_sets = st.number_input("Forearm Sets", min_value=1, step=1)
-            with col3:
-                forearm_reps = st.number_input("Forearm Reps", min_value=10, step=1)
-            
         if st.button("Log Gym Session"):
-            # SQL Insert Command Here
             today = str(datetime.now().date())
             
-            # Safely capture optional Abs and Forearm data
-            a_ex = abs_exercise if 'abs_exercise' in locals() else None
-            a_w = abs_weight if 'abs_weight' in locals() else None
-            a_s = abs_sets if 'abs_sets' in locals() else None
-            a_r = abs_reps if 'abs_reps' in locals() else None
-            
-            f_ex = forearm_exercise if 'forearm_exercise' in locals() else None
-            f_w = forearm_weight if 'forearm_weight' in locals() else None
-            f_s = forearm_sets if 'forearm_sets' in locals() else None
-            f_r = forearm_reps if 'forearm_reps' in locals() else None
-            
-            # STEP 1: Insert Parent Record
-            parent_data = {
-                "date": today, "workout_type": workout_type, "exercise": exercise,
-                "abs_exercise": a_ex, "abs_weight": a_w, "abs_sets": a_s, "abs_reps": a_r,
-                "forearm_exercise": f_ex, "forearm_weight": f_w, "forearm_sets": f_s, "forearm_reps": f_r
-            }
-            
-            parent_response = supabase.table("gym_logs").insert(parent_data).execute()
-            
-            if parent_response.data:
-                # Fetch the generated UUID from the response
-                new_log_id = parent_response.data[0]['log_id']
+            # --- HELPER FUNCTION FOR NORMALIZED INSERTS ---
+            def insert_exercise_data(ex_name, split_type, num_sets, weight_val, rep_val, rir_val=None):
+                parent_data = {"date": today, "workout_type": split_type, "exercise": ex_name}
+                parent_resp = supabase.table("gym_logs").insert(parent_data).execute()
                 
-                # STEP 2: Package all sets into a list and insert into Child table
-                child_data = []
-                for i in range(sets):
-                    child_data.append({
-                        "log_id": new_log_id,
-                        "set_number": i + 1,
-                        "weight": st.session_state[f"weight_{i}"],
-                        "reps": st.session_state[f"reps_{i}"],
-                        "rir": st.session_state[f"rir_{i}"]
-                    })
-                
-                if child_data:
-                    supabase.table("exercise_sets").insert(child_data).execute()
+                if parent_resp.data:
+                    new_id = parent_resp.data[0]['log_id']
                     
-                st.success(f"Successfully logged {exercise} and {sets} sets via API.")
-            else:
-                st.error("Failed to log the main exercise.")
+                    child_data = []
+                    for i in range(num_sets):
+                        child_data.append({
+                            "log_id": new_id,
+                            "set_number": i + 1,
+                            "weight": weight_val if not isinstance(weight_val, list) else weight_val[i],
+                            "reps": rep_val if not isinstance(rep_val, list) else rep_val[i],
+                            "rir": rir_val if not isinstance(rir_val, list) else (rir_val[i] if rir_val else None)
+                        })
+                    if child_data:
+                        supabase.table("exercise_sets").insert(child_data).execute()
+                    return True
+                return False
 
+            # --- SINGLE UNIFIED ROUTE ---
+            main_weights = [st.session_state[f"weight_{i}"] for i in range(sets)]
+            main_reps = [st.session_state[f"reps_{i}"] for i in range(sets)]
+            main_rirs = [st.session_state[f"rir_{i}"] for i in range(sets)]
+            
+            if insert_exercise_data(exercise, workout_type, sets, main_weights, main_reps, main_rirs):
+                st.toast(f"Successfully logged {sets} sets of {exercise}.")
+            else:
+                st.error("Failed to log the session.")
 # Tab 2: Swimming
 with tab2:
     st.header("Cardiovascular Capacity")
@@ -178,7 +150,7 @@ with tab2:
             
             response = supabase.table("swim_logs").insert(data).execute()
             if response.data:
-                st.success("Swim rest day logged successfully.")
+                st.toast("Swim rest day logged successfully.")
             else:
                 st.error("Failed to log rest day.")
                 
@@ -192,7 +164,8 @@ with tab2:
         with col2:
             length = st.number_input("Length (meters)", step=50, min_value=50)    
         
-        avg_lap_time = length / duration
+        total_laps = length / 50 
+        avg_lap_time = duration / total_laps if total_laps > 0 else 0
     
         if st.button("Log Swim Session"): 
             # SQL Insert Command Here
@@ -209,7 +182,7 @@ with tab2:
             response = supabase.table("swim_logs").insert(data).execute()
             
             if response.data:
-                st.success("Swim data appended via API.")
+                st.toast("Swim data appended via API.")
             else:
                 st.error("Failed to append data.")
         
@@ -245,7 +218,7 @@ with tab3:
         response = supabase.table("nutrition_logs").insert(data).execute()
         
         if response.data:
-            st.success("Nutrition data appended via API.")
+            st.toast("Nutrition data appended via API.")
         else:
             st.error("Failed to append data.")
 
@@ -254,6 +227,9 @@ with tab3:
 with tab4:
     st.header("Anthropometric Data")
     daily_weight = st.number_input("Morning Weight (kg)", step=0.05)
+    
+    # Initialize optional variables to prevent scope leaks
+    waist = shoulders = chest = arms = legs = None
     
     # Hidden Weekly Measurements
     if st.checkbox("Log Bi-Weekly Tape Measurements"):
@@ -269,28 +245,22 @@ with tab4:
     if st.button("Log Body Data"):
         # SQL Insert Command Here
         today = str(datetime.now().date())
-        
-        # Safely capture optional tape measurements
-        wst = waist if 'waist' in locals() else None
-        shld = shoulders if 'shoulders' in locals() else None
-        chst = chest if 'chest' in locals() else None
-        arm = arms if 'arms' in locals() else None
-        leg = legs if 'legs' in locals() else None
+
         
         data = {
             "date": today, 
             "daily_weight": daily_weight,
-            "waist": wst, 
-            "shoulders": shld, 
-            "chest": chst,
-            "arms": arm, 
-            "legs": leg
+            "waist": waist, 
+            "shoulders": shoulders, 
+            "chest": chest,
+            "arms": arms, 
+            "legs": legs
         }
         
         response = supabase.table("body_metrics").insert(data).execute()
         
         if response.data:
-            st.success("Body data appended via API.")
+            st.toast("Body data appended via API.")
         else:
             st.error("Failed to append data.")
         
@@ -332,16 +302,17 @@ with tab5:
         response = supabase.table("recovery_logs").insert(data).execute()
         
         if response.data:
-            st.success("Recovery data appended via API.")
+            st.toast("Recovery data appended via API.")
         else:
             st.error("Failed to append data.")
-        
+ 
+# Tab 6: Telemetry Dashboard       
 with tab6:
     st.header("Telemetry Dashboard")
     
-    if st.button("Refresh Data"):
+    if st.button("Refresh Data", type="primary"):
         
-        # --- 1. EXTRACT: Pull all necessary tables via REST API ---
+        # --- 1. EXTRACT & TRANSFORM ---
         body_resp = supabase.table("body_metrics").select("date, daily_weight").order("date").execute()
         rec_resp = supabase.table("recovery_logs").select("date, sleep_hrs, rhr, shoulder_pain").order("date").execute()
         nut_resp = supabase.table("nutrition_logs").select("date, calories, protein, carbs, fats, water_l").order("date").execute()
@@ -349,7 +320,6 @@ with tab6:
         sets_resp = supabase.table("exercise_sets").select("log_id, weight, reps").execute()
         swim_resp = supabase.table("swim_logs").select("date, avg_lap_time, length_m").order("date").execute()
 
-        # Convert to Pandas DataFrames
         body_df = pd.DataFrame(body_resp.data)
         rec_df = pd.DataFrame(rec_resp.data)
         nut_df = pd.DataFrame(nut_resp.data)
@@ -357,171 +327,222 @@ with tab6:
         sets_df = pd.DataFrame(sets_resp.data)
         swim_df = pd.DataFrame(swim_resp.data)
 
-        # --- 2. TRANSFORM: Merge relational tables and calculate metrics ---
+        # Typecasting JSON to numeric
+        if not body_df.empty: body_df['daily_weight'] = pd.to_numeric(body_df['daily_weight'], errors='coerce')
+        if not nut_df.empty: nut_df[['calories', 'protein', 'carbs', 'fats', 'water_l']] = nut_df[['calories', 'protein', 'carbs', 'fats', 'water_l']].apply(pd.to_numeric, errors='coerce')
+        if not rec_df.empty: rec_df[['sleep_hrs', 'rhr', 'shoulder_pain']] = rec_df[['sleep_hrs', 'rhr', 'shoulder_pain']].apply(pd.to_numeric, errors='coerce')
+
+        # Complex Gym Transformations (Tonnage & 1RM)
         if not gym_df.empty and not sets_df.empty:
             merged_gym = pd.merge(sets_df, gym_df, on="log_id")
-            # Calculate total tonnage per set
             merged_gym['tonnage'] = merged_gym['weight'] * merged_gym['reps']
+            # Brzycki 1RM Formula: Weight × (36 / (37 - Reps))
+            merged_gym['est_1rm'] = merged_gym.apply(lambda row: row['weight'] if row['reps'] == 1 else row['weight'] * (36 / (37 - row['reps'])), axis=1)
         else:
             merged_gym = pd.DataFrame()
 
-        # --- 3. KPI ROW: Personal Records ---
-        st.subheader("Performance PRs")
-        col1, col2 = st.columns(2)
+        # --- 2. KPI ROW ---
+        st.subheader("Peak Mechanical Outputs (Est. 1RM)")
+        col1, col2, col3, col4 = st.columns(4)
         
-        with col1:
-            if not merged_gym.empty and 'Smith Machine Squats' in merged_gym['exercise'].values:
-                smith_max = merged_gym[merged_gym['exercise'] == 'Smith Machine Squats']['weight'].max()
-                st.metric("Smith Squat PR", f"{smith_max} kg")
-            else:
-                st.metric("Smith Squat PR", "-- kg")
-                
-            if not merged_gym.empty and 'Deadlift' in merged_gym['exercise'].values:
-                deadlift_max = merged_gym[merged_gym['exercise'] == 'Deadlift']['weight'].max()
-                st.metric("Deadlift PR", f"{deadlift_max} kg")
-            else:
-                st.metric("Deadlift PR", "-- kg")
-                
-        with col2:
-            if not merged_gym.empty and 'Bench Press' in merged_gym['exercise'].values:
-                bench_max = merged_gym[merged_gym['exercise'] == 'Bench Press']['weight'].max()
-                st.metric("Bench Press PR", f"{bench_max} kg")
-            else:
-                st.metric("Bench Press PR", "-- kg")
-                
-            if not swim_df.empty and swim_df['length_m'].min() > 0:
-                total_lap = round(swim_df[swim_df['length_m'] > 0]['length_m'].min(), 2)
-                st.metric("Best Total Swim Length", f"{total_lap} mts")
-            else:
-                st.metric("Best Total Swim Length", "-- mts")
+        def get_max_1rm(ex_name):
+            if not merged_gym.empty and ex_name in merged_gym['exercise'].values:
+                return round(merged_gym[merged_gym['exercise'] == ex_name]['est_1rm'].max(), 1)
+            return "--"
+
+        col1.metric("Squat 1RM", f"{get_max_1rm('Smith Machine Squats')} kg")
+        col2.metric("Bench 1RM", f"{get_max_1rm('Bench Press')} kg")
+        col3.metric("Deadlift 1RM", f"{get_max_1rm('Deadlift')} kg")
+        
+        if not swim_df.empty and swim_df['avg_lap_time'].min() > 0:
+            fastest_lap = round(swim_df[swim_df['avg_lap_time'] > 0]['avg_lap_time'].min(), 2)
+            col4.metric("Best Lap", f"{fastest_lap} min")
+        else:
+            col4.metric("Best Lap", "-- min")
                 
         st.divider()
-
-        # --- 4. MECHANICAL VOLUME & SPLIT DISTRIBUTION ---
-        col_vol, col_split = st.columns([2, 1])
         
-        with col_vol:
-            st.subheader("Daily Tonnage Trajectory")
+        
+        #GITHUB STYLE HEATMAP FOR ACTIVITY CONSISTENCY (GYM + SWIM)
+        st.subheader("Activity Consistency Heatmap")
+        
+        # 1. Extract unique dates from the dataframes
+        gym_dates = pd.to_datetime(gym_df['date']).dt.date.unique() if not gym_df.empty else []
+        swim_dates = pd.to_datetime(swim_df['date']).dt.date.unique() if not swim_df.empty else []
+            
+        # 2. Generate a continuous timeline for the last 180 days (fits dashboards well)
+        end_date = datetime.now().date()
+        start_date = end_date - pd.Timedelta(days=180)
+        all_dates = pd.date_range(start=start_date, end=end_date)
+            
+        heat_df = pd.DataFrame({'date': all_dates})
+            
+        # 3. Categorize each day
+        heat_df['is_gym'] = heat_df['date'].dt.date.isin(gym_dates)
+        heat_df['is_swim'] = heat_df['date'].dt.date.isin(swim_dates)
+            
+        def get_activity_status(row):
+            if row['is_gym'] and row['is_swim']: return 3  # Gym + Swim
+            if row['is_swim']: return 2                    # Swim Only
+            if row['is_gym']: return 1                     # Gym Only
+            return 0                                       # Rest Day
+                
+        heat_df['status'] = heat_df.apply(get_activity_status, axis=1)
+            
+        # 4. Math for GitHub-style layout (Y = Day of Week, X = Week offset)
+        heat_df['dow'] = heat_df['date'].dt.dayofweek
+        heat_df['week'] = ((heat_df['date'] - pd.to_datetime(start_date)).dt.days) // 7
+            
+        # Pivot into a 2D matrix
+        matrix = heat_df.pivot(index='dow', columns='week', values='status')
+            
+        # Create hover text matrix
+        hover_text = []
+        status_map = {0: "Rest", 1: "Gym", 2: "Swim", 3: "Gym + Swim"}
+        for dow in range(7):
+            row_text = []
+            for week in matrix.columns:
+                val = heat_df[(heat_df['dow'] == dow) & (heat_df['week'] == week)]
+                if not val.empty:
+                    d = val.iloc[0]
+                    row_text.append(f"{d['date'].strftime('%b %d, %Y')}<br>{status_map[d['status']]}")
+                else:
+                    row_text.append("")
+            hover_text.append(row_text)
+
+            # 5. Build the discrete color scale
+        colorscale = [
+            [0.00, '#1e212b'], [0.25, '#1e212b'], # 0: Rest (Dark)
+            [0.25, '#ff4b4b'], [0.50, '#ff4b4b'], # 1: Gym (Red)
+            [0.50, '#00ffcc'], [0.75, '#00ffcc'], # 2: Swim (Cyan)
+            [0.75, '#b042ff'], [1.00, '#b042ff']  # 3: Gym+Swim (Purple)
+            ]
+            
+            # 6. Render the Heatmap
+        fig_heat = go.Figure(data=go.Heatmap(
+            z=matrix.values,
+            text=hover_text,
+            hoverinfo="text",
+            colorscale=colorscale,
+            showscale=False,
+            xgap=2, ygap=2, # Creates the "blocky" gap between days
+            zmin=0, zmax=0
+            ))
+            
+        fig_heat.update_layout(
+            yaxis=dict(
+                tickmode='array',
+                tickvals=[0, 1, 2, 3, 4, 5, 6],
+                ticktext=['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                autorange="reversed", # Puts Monday at the top
+                scaleanchor="x", # Ensures square cells
+                scaleratio=1
+            ),
+            xaxis=dict(showticklabels=False), # Hide week numbers
+            margin=dict(l=20, r=20, t=30, b=20),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
+        )
+            
+        st.plotly_chart(fig_heat, use_container_width=True)
+            
+        # Render a manual legend below it
+        st.markdown(
+        """
+        <div style='display: flex; justify-content: center; gap: 15px; font-size: 12px; margin-top: -10px;'>
+        <div><span style='color: #1e212b;'>█</span> Rest</div>
+        <div><span style='color: #ff4b4b;'>█</span> Gym</div>
+        <div><span style='color: #00ffcc;'>█</span> Swim</div>
+        <div><span style='color: #b042ff;'>█</span> Gym + Swim</div>
+        </div>
+        """, unsafe_allow_html=True
+        )    
+        
+        st.divider()
+
+        # --- 3. CONSISTENCY HEATMAP & RADAR ---
+        col_heat, col_radar = st.columns([2, 1])
+        
+        with col_heat:
+            st.subheader("Training Consistency")
             if not merged_gym.empty:
                 daily_tonnage = merged_gym.groupby('date')['tonnage'].sum().reset_index()
-                fig_tonnage = px.line(daily_tonnage, x="date", y="tonnage", markers=True,
-                                      title="Total Mechanical Volume (Weight × Reps)",
-                                      labels={"tonnage": "Total Volume (kg)", "date": "Date"})
-                st.plotly_chart(fig_tonnage, use_container_width=True)
+                # A density bar chart that functions as a Github-style activity heat-strip
+                fig_heat = px.bar(daily_tonnage, x="date", y="tonnage", color="tonnage",
+                                  color_continuous_scale="Tealgrn", title="Daily Work Capacity Streak")
+                fig_heat.update_layout(xaxis_title="", yaxis_title="Total Volume (kg)")
+                st.plotly_chart(fig_heat, use_container_width=True)
             else:
-                st.info("Log gym sets to calculate tonnage.")
+                st.info("Log workouts to build your streak.")
                 
-        with col_split:
-            st.subheader("Split Distribution")
-            if not gym_df.empty:
-                split_counts = gym_df['workout_type'].value_counts().reset_index()
-                split_counts.columns = ['Split', 'Count']
-                fig_split = px.pie(split_counts, values='Count', names='Split', hole=0.4,
-                                   title="Workout Frequency")
-                st.plotly_chart(fig_split, use_container_width=True)
+        with col_radar:
+            st.subheader("Split Balance")
+            if not merged_gym.empty:
+                # Group by Split to see where total energy is going
+                radar_data = merged_gym.groupby('workout_type')['tonnage'].sum().reset_index()
+                fig_radar = go.Figure(data=go.Scatterpolar(
+                    r=radar_data['tonnage'],
+                    theta=radar_data['workout_type'],
+                    fill='toself',
+                    line_color='#00ffcc'
+                ))
+                fig_radar.update_layout(polar=dict(radialaxis=dict(visible=False)), showlegend=False, 
+                                        margin=dict(l=20, r=20, t=20, b=20))
+                st.plotly_chart(fig_radar, use_container_width=True)
 
         st.divider()
 
-        # --- 5. CARDIOVASCULAR ADAPTATION (Dual Axis) ---
-        st.subheader("Swim Efficiency vs. Resting Heart Rate")
-        if not swim_df.empty and not rec_df.empty:
-            # Merge swim and recovery on date to compare them on the same days
-            cardio_df = pd.merge(swim_df, rec_df, on="date", how="inner")
-            if not cardio_df.empty:
-                fig_cardio = go.Figure()
-                # Left Y-Axis: Swim Pace
-                fig_cardio.add_trace(go.Scatter(x=cardio_df['date'], y=cardio_df['avg_lap_time'],
-                                                mode='lines+markers', name='Avg Lap Time (min)',
-                                                line=dict(color='cyan')))
-                # Right Y-Axis: RHR
-                fig_cardio.add_trace(go.Scatter(x=cardio_df['date'], y=cardio_df['rhr'],
-                                                mode='lines+markers', name='Resting Heart Rate (bpm)',
-                                                line=dict(color='red'), yaxis='y2'))
-                
-                fig_cardio.update_layout(
-                    title="Cardiovascular Engine Adaptation",
-                    yaxis=dict(
-                        title=dict(text="Swim Pace (min/lap)", font=dict(color="cyan")), 
-                        tickfont=dict(color="cyan")
-                    ),
-                    yaxis2=dict(
-                        title=dict(text="RHR (bpm)", font=dict(color="red")), 
-                        tickfont=dict(color="red"),
-                        overlaying='y', 
-                        side='right'
-                    )
-                )
-                st.plotly_chart(fig_cardio, use_container_width=True)
-            else:
-                st.info("Log both swimming and recovery data on the same dates to see correlation.")
-        else:
-            st.info("Log swim and recovery data to build cardiovascular charts.")
-
-        st.divider()
-
-        # --- 6. ADVANCED CORRELATION MATRIX ---
-        st.subheader("Systemic Fatigue Correlation Matrix")
-        st.caption("A Pearson Correlation heatmap identifying relationships between volume, sleep, and discomfort.")
-        if not merged_gym.empty and not rec_df.empty:
-            daily_tonnage = merged_gym.groupby('date')['tonnage'].sum().reset_index()
-            # Merge recovery and tonnage
-            matrix_df = pd.merge(rec_df, daily_tonnage, on="date", how="inner")
-            if not matrix_df.empty and len(matrix_df) > 2:
-                # Select only numerical columns for the matrix
-                corr_cols = ['sleep_hrs', 'rhr', 'shoulder_pain', 'tonnage']
-                corr_matrix = matrix_df[corr_cols].corr().round(2)
-                
-                fig_corr = px.imshow(corr_matrix, text_auto=True, aspect="auto", 
-                                     color_continuous_scale="RdBu_r", 
-                                     title="Variable Impact Heatmap")
-                st.plotly_chart(fig_corr, use_container_width=True)
-            else:
-                st.info("Need at least 3 days of overlapping gym and recovery data to compute statistical correlation.")
-        else:
-            st.info("Log both recovery and gym data to generate the heatmap.")
-
-        st.divider()
-
-        # --- 7. BODY RECOMPOSITION (Existing) ---
-        st.subheader("Body Recomposition Trend")
-        if not body_df.empty:
+        # --- 4. PREDICTIVE FORECASTING (OLS Regression) ---
+        st.subheader("Body Recomposition Forecast")
+        if not body_df.empty and len(body_df) > 2:
+            body_df['date'] = pd.to_datetime(body_df['date'])
+            body_df = body_df.sort_values('date')
+            
+            # Calculate rolling average
             body_df['7_Day_Avg'] = body_df['daily_weight'].rolling(window=7, min_periods=1).mean()
-            fig_weight = px.line(body_df, x="date", y=["daily_weight", "7_Day_Avg"], 
-                                 title="Daily Weight vs. 7-Day Average")
+            
+            # Linear Regression Math
+            body_df['days_since_start'] = (body_df['date'] - body_df['date'].min()).dt.days
+            z = np.polyfit(body_df['days_since_start'], body_df['daily_weight'], 1)
+            p = np.poly1d(z)
+            
+            # Project 30 days into the future
+            future_days = np.arange(body_df['days_since_start'].max(), body_df['days_since_start'].max() + 30)
+            future_dates = pd.date_range(body_df['date'].max(), periods=30)
+            future_weights = p(future_days)
+            
+            fig_weight = go.Figure()
+            # Actual Data
+            fig_weight.add_trace(go.Scatter(x=body_df['date'], y=body_df['daily_weight'], mode='lines', name='Daily Weight', line=dict(color='gray', width=1)))
+            fig_weight.add_trace(go.Scatter(x=body_df['date'], y=body_df['7_Day_Avg'], mode='lines', name='7-Day Avg', line=dict(color='#00ffcc', width=3)))
+            # Projection Line
+            fig_weight.add_trace(go.Scatter(x=future_dates, y=future_weights, mode='lines', name='30-Day Forecast', line=dict(color='red', width=2, dash='dash')))
+            
             fig_weight.add_hline(y=80, line_dash="dash", line_color="green", annotation_text="Goal: 80 kg")
+            fig_weight.update_layout(title="Current Trajectory vs. 30-Day Predictive Forecast")
             st.plotly_chart(fig_weight, use_container_width=True)
         else:
-            st.info("Log more body weight data to generate the trend line.")
+            st.info("Log at least 3 days of body weight data to generate the predictive model.")
 
         st.divider()
 
-        # --- 8. RECOVERY VS SLEEP (Existing) ---
-        st.subheader("Shoulder Discomfort vs. Sleep")
-        if not rec_df.empty:
-            fig_recovery = px.bar(rec_df, x="date", y="sleep_hrs", 
-                                  color="shoulder_pain", 
-                                  color_continuous_scale="Reds",
-                                  title="Sleep Duration Colored by Shoulder Pain Intensity")
-            st.plotly_chart(fig_recovery, use_container_width=True)
+        # --- 5. SYSTEMIC FATIGUE & METABOLISM (Preserved from earlier) ---
+        st.subheader("Metabolic & Cardiovascular Telemetry")
+        if not swim_df.empty and not rec_df.empty:
+            swim_daily = swim_df.groupby('date').mean(numeric_only=True).reset_index()
+            rec_daily = rec_df.groupby('date').mean(numeric_only=True).reset_index()
+            cardio_df = pd.merge(swim_daily, rec_daily, on="date", how="inner")
+            if not cardio_df.empty:
+                fig_cardio = go.Figure()
+                fig_cardio.add_trace(go.Scatter(x=cardio_df['date'], y=cardio_df['avg_lap_time'], mode='lines+markers', name='Swim Pace', line=dict(color='cyan')))
+                fig_cardio.add_trace(go.Scatter(x=cardio_df['date'], y=cardio_df['rhr'], mode='lines+markers', name='RHR', line=dict(color='red'), yaxis='y2'))
+                fig_cardio.update_layout(title="Cardiovascular Engine (Pace vs. RHR)",
+                    yaxis=dict(title=dict(text="Pace (min/lap)", font=dict(color="cyan")), tickfont=dict(color="cyan")),
+                    yaxis2=dict(title=dict(text="RHR (bpm)", font=dict(color="red")), tickfont=dict(color="red"), overlaying='y', side='right'))
+                st.plotly_chart(fig_cardio, use_container_width=True)
 
-        st.divider()
-
-        # --- 9. METABOLIC INPUTS (Existing) ---
-        st.subheader("Metabolic Inputs & Macronutrients")
         if not nut_df.empty:
             nut_df['Cal_7_Day_Avg'] = nut_df['calories'].rolling(window=7, min_periods=1).mean()
-            fig_cal = px.line(nut_df, x="date", y=["calories", "Cal_7_Day_Avg"], 
-                              title="Daily Caloric Intake vs. 7-Day Average",
-                              labels={"value": "Calories", "variable": "Metric"})
-            fig_cal.add_hline(y=3000, line_dash="dash", line_color="orange", annotation_text="Goal: 3000 kcal")
-            fig_cal.add_hline(y=3500, line_dash="dash", line_color="red", annotation_text="Maintenance: 3500 kcal")
+            fig_cal = px.line(nut_df, x="date", y=["calories", "Cal_7_Day_Avg"], title="Metabolic Intake", color_discrete_sequence=['gray', '#00ffcc'])
+            fig_cal.add_hline(y=3000, line_dash="dash", line_color="orange", annotation_text="Surplus Target")
             st.plotly_chart(fig_cal, use_container_width=True)
-            
-            st.divider()
-            
-            fig_macros = px.line(nut_df, x="date", y=["protein", "carbs", "fats", "water_l"],
-                                 title="Daily Macronutrient (g) & Water (L) Trajectory",
-                                 labels={"value": "Amount", "variable": "Nutrient"})
-            st.plotly_chart(fig_macros, use_container_width=True)
-        else:
-            st.info("Log more nutrition data to generate the dietary trends.")
