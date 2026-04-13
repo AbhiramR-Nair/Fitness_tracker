@@ -267,7 +267,7 @@ with tab4:
 
     if st.button("Log Body Data"):
         # SQL Insert Command Here
-        today = datetime.now().date()
+        today = str(datetime.now().date())
         
         # Safely capture optional tape measurements
         wst = waist if 'waist' in locals() else None
