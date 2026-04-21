@@ -339,6 +339,11 @@ def create_cardio_telemetry(swim_logs_df: pd.DataFrame, swim_sets_df: pd.DataFra
         )
         return fig
     
+    swim_logs_df = swim_logs_df.copy()
+    swim_sets_df = swim_sets_df.copy()
+    swim_logs_df["log_id"] = swim_logs_df["log_id"].astype(str)
+    swim_sets_df["log_id"] = swim_sets_df["log_id"].astype(str)
+    
     # Join swim_logs and swim_sets on log_id
     swim_merged = pd.merge(swim_logs_df, swim_sets_df, on="log_id", how="left")
     
@@ -357,13 +362,13 @@ def create_cardio_telemetry(swim_logs_df: pd.DataFrame, swim_sets_df: pd.DataFra
     # Group by date to get daily average pace
     swim_daily = swim_merged.groupby("date").agg({"pace": "mean"}).reset_index()
     swim_daily = swim_daily[swim_daily["pace"] > 0]
-    swim_daily["date"] = pd.to_datetime(swim_daily["date"])
+    swim_daily["date"] = pd.to_datetime(swim_daily["date"]).dt.strftime("%Y-%m-%d")
     
     # Extract RHR from telemetry
     telemetry_df = telemetry_df.copy()
     telemetry_df["date"] = pd.to_datetime(telemetry_df["date"])
     telemetry_df["rhr"] = pd.to_numeric(telemetry_df["rhr"], errors="coerce")
-    telemetry_rhr = telemetry_df[["date", "rhr"]].dropna(subset=["rhr"])
+    telemetry_rhr = pd.to_datetime(telemetry_df[["date", "rhr"]].dropna(subset=["rhr"])).dt.strftime("%Y-%m-%d")
     
     # Merge on date
     cardio_df = pd.merge(swim_daily, telemetry_rhr, on="date", how="inner")
