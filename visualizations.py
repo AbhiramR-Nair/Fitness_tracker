@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 
@@ -332,6 +333,10 @@ def create_cardio_telemetry(swim_logs_df: pd.DataFrame, swim_sets_df: pd.DataFra
     if swim_logs_df.empty or swim_sets_df.empty or telemetry_df.empty:
         fig = go.Figure()
         fig.add_annotation(text="Insufficient data for cardio telemetry.")
+        fig.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
         return fig
     
     # Join swim_logs and swim_sets on log_id
@@ -340,6 +345,10 @@ def create_cardio_telemetry(swim_logs_df: pd.DataFrame, swim_sets_df: pd.DataFra
     if swim_merged.empty or "pace" not in swim_merged.columns:
         fig = go.Figure()
         fig.add_annotation(text="No valid swim pace data available.")
+        fig.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
         return fig
     
     # Ensure pace is numeric
@@ -348,6 +357,7 @@ def create_cardio_telemetry(swim_logs_df: pd.DataFrame, swim_sets_df: pd.DataFra
     # Group by date to get daily average pace
     swim_daily = swim_merged.groupby("date").agg({"pace": "mean"}).reset_index()
     swim_daily = swim_daily[swim_daily["pace"] > 0]
+    swim_daily["date"] = pd.to_datetime(swim_daily["date"])
     
     # Extract RHR from telemetry
     telemetry_df = telemetry_df.copy()
@@ -361,9 +371,15 @@ def create_cardio_telemetry(swim_logs_df: pd.DataFrame, swim_sets_df: pd.DataFra
     if cardio_df.empty:
         fig = go.Figure()
         fig.add_annotation(text="No matching swim and recovery data.")
+        fig.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
         return fig
     
-    fig = go.Figure()
+    cardio_df = cardio_df.sort_values("date")
+    
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
     
     fig.add_trace(
         go.Scatter(
@@ -372,8 +388,8 @@ def create_cardio_telemetry(swim_logs_df: pd.DataFrame, swim_sets_df: pd.DataFra
             mode="lines+markers",
             name="Swim Pace (min/m)",
             line=dict(color="cyan", width=2),
-            yaxis="y1",
-        )
+        ),
+        secondary_y=False,
     )
     
     fig.add_trace(
@@ -383,28 +399,20 @@ def create_cardio_telemetry(swim_logs_df: pd.DataFrame, swim_sets_df: pd.DataFra
             mode="lines+markers",
             name="RHR (bpm)",
             line=dict(color="red", width=2),
-            yaxis="y2",
-        )
+        ),
+        secondary_y=True,
     )
     
     fig.update_layout(
         title="Cardiovascular Engine (Pace vs. RHR)",
-        xaxis_title="Date",
-        yaxis=dict(
-            title=dict(text="Pace (min/m)", font=dict(color="cyan")),
-            tickfont=dict(color="cyan"),
-            side="left",
-        ),
-        yaxis2=dict(
-            title=dict(text="RHR (bpm)", font=dict(color="red")),
-            tickfont=dict(color="red"),
-            overlaying="y",
-            side="right",
-        ),
         hovermode="x unified",
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
+    
+    fig.update_yaxes(title_text="Swim Pace (min/m)", secondary_y=False, showgrid=False)
+    fig.update_yaxes(title_text="RHR (bpm)", secondary_y=True, showgrid=False)
     
     return fig
 
