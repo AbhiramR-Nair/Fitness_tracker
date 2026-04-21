@@ -14,6 +14,7 @@ Features:
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from database import supabase
 
@@ -102,76 +103,67 @@ def create_trend_graph(df: pd.DataFrame) -> go.Figure:
     if df.empty:
         fig = go.Figure()
         fig.add_annotation(text="Insufficient data for trend graph.")
+        fig.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         return fig
 
-    fig = go.Figure()
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
 
     # Weight (left y-axis)
-    fig.add_trace(
-        go.Scatter(
-            x=df["date"],
-            y=df["daily_weight"],
-            mode="lines+markers",
-            name="Weight (kg)",
-            line=dict(color="#FF6B6B", width=2),
-            yaxis="y1",
+    if "daily_weight" in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df["date"],
+                y=df["daily_weight"],
+                mode="lines+markers",
+                name="Weight (kg)",
+                line=dict(color="#FF6B6B", width=2),
+                yaxis="y1",
+            ),
+            secondary_y=False
         )
-    )
-
-    # Sleep (right y-axis 1)
-    fig.add_trace(
-        go.Scatter(
-            x=df["date"],
-            y=df["sleep_hrs"],
-            mode="lines+markers",
-            name="Sleep (hrs)",
-            line=dict(color="#4ECDC4", width=2),
-            yaxis="y2",
-        )
-    )
 
     # RHR (right y-axis 2)
-    fig.add_trace(
-        go.Scatter(
-            x=df["date"],
-            y=df["rhr"],
-            mode="lines+markers",
-            name="RHR (bpm)",
-            line=dict(color="#FFE66D", width=2),
-            yaxis="y3",
+    if "rhr" in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df["date"],
+                y=df["rhr"],
+                mode="lines+markers",
+                name="RHR (bpm)",
+                line=dict(color="#FFE66D", width=2),
+                yaxis="y3",
+            ),
+            secondary_y=False
         )
-    )
+
+    # Sleep (right y-axis 1)
+    if "sleep_hrs" in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df["date"],
+                y=df["sleep_hrs"],
+                mode="lines+markers",
+                name="Sleep (hrs)",
+                line=dict(color="#4ECDC4", width=2),
+                yaxis="y2",
+            ),
+            secondary_y=True
+        )
+
 
     # Configure axes
     fig.update_layout(
         title="📊 Last 30 Days: Weight, Sleep & RHR Trends",
-        xaxis=dict(title="Date"),
-        yaxis=dict(
-            title="Weight (kg)",
-            titlefont=dict(color="#FF6B6B"),
-            tickfont=dict(color="#FF6B6B"),
-            side="left",
-        ),
-        yaxis2=dict(
-            title="Sleep (hrs)",
-            titlefont=dict(color="#4ECDC4"),
-            tickfont=dict(color="#4ECDC4"),
-            overlaying="y",
-            side="left",
-            position=0.1,
-        ),
-        yaxis3=dict(
-            title="RHR (bpm)",
-            titlefont=dict(color="#FFE66D"),
-            tickfont=dict(color="#FFE66D"),
-            overlaying="y",
-            side="right",
-        ),
         hovermode="x unified",
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         height=400,
+        margin=dict(l=20, r=20, t=50, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
+
+    fig.update_yaxes(title_text="Weight (kg)/RHR (bpm)", secondary_y=False, showgrid=False)
+    fig.update_yaxes(title_text="Sleep (hrs)", secondary_y=True, showgrid=False)
 
     return fig
 
