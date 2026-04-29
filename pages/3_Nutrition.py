@@ -330,7 +330,7 @@ with col_builder:
     # STEP 1: Meal Name Selection
         meal_name = st.selectbox(
             "Meal Name",
-            ["Breakfast", "Lunch", "Dinner", "Snack", "Post-Workout"],
+            ["Breakfast", "Lunch", "Dinner", "Snack", "Post-Workout", "Total Diet"],
             key="meal_name_select",
         )
 
